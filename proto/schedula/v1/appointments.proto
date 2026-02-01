@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package schedula.v1;
+
+option go_package = "schedula/backend/internal/gen/proto/schedula/v1;schedulev1";
+
+import "google/protobuf/timestamp.proto";
+
+enum Weekday {
+  WEEKDAY_UNSPECIFIED = 0;
+  MONDAY = 1;
+  TUESDAY = 2;
+  WEDNESDAY = 3;
+  THURSDAY = 4;
+  FRIDAY = 5;
+  SATURDAY = 6;
+  SUNDAY = 7;
+}
+
+message WeeklyRecurrence {
+  uint32 interval = 1;
+  repeated Weekday weekdays = 2;
+  google.protobuf.Timestamp until = 3;
+  uint32 count = 4;
+  string time_zone = 5;
+}
+
+message Appointment {
+  string id = 1;
+  string user_id = 2;
+  string title = 3;
+  string notes = 4;
+  google.protobuf.Timestamp start_time = 5;
+  google.protobuf.Timestamp end_time = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message CreateAppointmentRequest {
+  string user_id = 1;
+  string title = 2;
+  string notes = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+}
+
+message CreateAppointmentResponse {
+  Appointment appointment = 1;
+}
+
+message ListAppointmentsRequest {
+  string user_id = 1;
+  google.protobuf.Timestamp window_start = 2;
+  google.protobuf.Timestamp window_end = 3;
+}
+
+message ListAppointmentsResponse {
+  repeated Appointment appointments = 1;
+}
+
+message DeleteAppointmentRequest {
+  string user_id = 1;
+  string appointment_id = 2;
+}
+
+message DeleteAppointmentResponse {}
+
+message RecurringSeries {
+  string id = 1;
+  string user_id = 2;
+  string title = 3;
+  string notes = 4;
+  google.protobuf.Timestamp start_time = 5;
+  google.protobuf.Timestamp end_time = 6;
+  WeeklyRecurrence weekly = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message CreateRecurringSeriesRequest {
+  string user_id = 1;
+  string title = 2;
+  string notes = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+  WeeklyRecurrence weekly = 6;
+}
+
+message CreateRecurringSeriesResponse {
+  RecurringSeries series = 1;
+}
+
+message Occurrence {
+  string series_id = 1;
+  string occurrence_id = 2;
+  string user_id = 3;
+  string title = 4;
+  string notes = 5;
+  google.protobuf.Timestamp start_time = 6;
+  google.protobuf.Timestamp end_time = 7;
+}
+
+message ListOccurrencesRequest {
+  string user_id = 1;
+  google.protobuf.Timestamp window_start = 2;
+  google.protobuf.Timestamp window_end = 3;
+}
+
+message ListOccurrencesResponse {
+  repeated Occurrence occurrences = 1;
+}
+
+service AppointmentsService {
+  rpc CreateAppointment(CreateAppointmentRequest) returns (CreateAppointmentResponse);
+  rpc ListAppointments(ListAppointmentsRequest) returns (ListAppointmentsResponse);
+  rpc DeleteAppointment(DeleteAppointmentRequest) returns (DeleteAppointmentResponse);
+  rpc CreateRecurringSeries(CreateRecurringSeriesRequest) returns (CreateRecurringSeriesResponse);
+  rpc ListOccurrences(ListOccurrencesRequest) returns (ListOccurrencesResponse);
+}

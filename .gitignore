@@ -1,0 +1,58 @@
+# General
+**/logs
+**/*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*.swn
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage*
+
+# Backend artifacts
+/backend/tmp/
+/backend/bin/
+/backend/dist/
+
+# Node / frontend artifacts
+**/node_modules/
+**/.cache/
+**/.eslintcache
+**/.pnpm-store/
+**/.turbo/
+**/.vite/
+/frontend/dist/
+/frontend/dist-ssr/
+
+# Tooling
+.trae/
+
+# Project notes
+/plan.md
+/backend/testing-plan.md
