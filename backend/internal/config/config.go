@@ -83,8 +83,16 @@ func Load() (Config, error) {
 		}
 	}
 
+	grpcHost := strings.TrimSpace(v.GetString("grpc.host"))
+	if grpcHost == "" {
+		grpcHost = "0.0.0.0"
+	}
+	if grpcHost != "0.0.0.0" && grpcHost != "::" && grpcHost != "localhost" && net.ParseIP(grpcHost) == nil {
+		grpcHost = "0.0.0.0"
+	}
+
 	return Config{
-		GRPCHost:           strings.TrimSpace(v.GetString("grpc.host")),
+		GRPCHost:           grpcHost,
 		GRPCPort:           v.GetInt("grpc.port"),
 		DatabaseURL:        v.GetString("database.url"),
 		ShutdownTimeout:    timeout,
