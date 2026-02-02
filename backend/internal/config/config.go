@@ -1,6 +1,8 @@
 package config
 
 import (
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -8,15 +10,16 @@ import (
 )
 
 type Config struct {
-	GRPCAddr            string
-	DatabaseURL         string
-	ShutdownTimeout     time.Duration
-	LogLevel            string
-	GRPCRequestTimeout  time.Duration
-	DBMaxOpenConns      int
-	DBMaxIdleConns      int
-	DBConnMaxLifetime   time.Duration
-	DBConnMaxIdleTime   time.Duration
+	GRPCHost           string
+	GRPCPort           int
+	DatabaseURL        string
+	ShutdownTimeout    time.Duration
+	LogLevel           string
+	GRPCRequestTimeout time.Duration
+	DBMaxOpenConns     int
+	DBMaxIdleConns     int
+	DBConnMaxLifetime  time.Duration
+	DBConnMaxIdleTime  time.Duration
 }
 
 func Load() (Config, error) {
@@ -25,7 +28,9 @@ func Load() (Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	v.SetDefault("grpc.addr", "0.0.0.0:50051")
+	v.SetDefault("grpc.host", "0.0.0.0")
+	v.SetDefault("grpc.port", 50051)
+	v.SetDefault("grpc.addr", "")
 	v.SetDefault("grpc.request_timeout", "10s")
 	v.SetDefault("database.url", "postgres://schedula:schedula@127.0.0.1:5433/schedula?sslmode=disable")
 	v.SetDefault("database.max_open_conns", 20)
@@ -35,6 +40,8 @@ func Load() (Config, error) {
 	v.SetDefault("shutdown.timeout", "10s")
 	v.SetDefault("log.level", "info")
 
+	_ = v.BindEnv("grpc.host", "SCHEDULA_GRPC_HOST", "GRPC_HOST")
+	_ = v.BindEnv("grpc.port", "SCHEDULA_GRPC_PORT", "GRPC_PORT", "PORT")
 	_ = v.BindEnv("grpc.addr", "SCHEDULA_GRPC_ADDR", "GRPC_ADDR")
 	_ = v.BindEnv("grpc.request_timeout", "SCHEDULA_GRPC_REQUEST_TIMEOUT")
 	_ = v.BindEnv("database.url", "SCHEDULA_DATABASE_URL", "DATABASE_URL")
@@ -64,8 +71,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	if addr := strings.TrimSpace(v.GetString("grpc.addr")); addr != "" {
+		host, portStr, err := net.SplitHostPort(addr)
+		if err == nil {
+			if host != "" {
+				v.Set("grpc.host", host)
+			}
+			if port, err := strconv.Atoi(portStr); err == nil {
+				v.Set("grpc.port", port)
+			}
+		}
+	}
+
 	return Config{
-		GRPCAddr:           v.GetString("grpc.addr"),
+		GRPCHost:           strings.TrimSpace(v.GetString("grpc.host")),
+		GRPCPort:           v.GetInt("grpc.port"),
 		DatabaseURL:        v.GetString("database.url"),
 		ShutdownTimeout:    timeout,
 		LogLevel:           v.GetString("log.level"),

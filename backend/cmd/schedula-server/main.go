@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -38,7 +39,13 @@ func main() {
 	)
 	slog.SetDefault(log)
 
-	log.Info("starting", slog.String("grpc_addr", cfg.GRPCAddr), slog.String("log_level", cfg.LogLevel))
+	grpcAddr := net.JoinHostPort(cfg.GRPCHost, strconv.Itoa(cfg.GRPCPort))
+	log.Info("starting",
+		slog.String("grpc_addr", grpcAddr),
+		slog.String("grpc_host", cfg.GRPCHost),
+		slog.Int("grpc_port", cfg.GRPCPort),
+		slog.String("log_level", cfg.LogLevel),
+	)
 
 	log.Info("connecting to database", databaseLogArgs(cfg.DatabaseURL)...)
 	db, err := postgres.Open(cfg.DatabaseURL, postgres.PoolConfig{
@@ -66,9 +73,9 @@ func main() {
 	)
 	schedulev1.RegisterAppointmentsServiceServer(grpcServer, grpcTransport.NewAppointmentsServer(svc, log))
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
+	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
-		log.Error("grpc listen failed", slog.Any("err", err), slog.String("grpc_addr", cfg.GRPCAddr))
+		log.Error("grpc listen failed", slog.Any("err", err), slog.String("grpc_addr", grpcAddr))
 		os.Exit(1)
 	}
 
@@ -80,7 +87,7 @@ func main() {
 		errCh <- grpcServer.Serve(lis)
 	}()
 
-	log.Info("grpc server started", slog.String("grpc_addr", cfg.GRPCAddr))
+	log.Info("grpc server started", slog.String("grpc_addr", grpcAddr))
 
 	select {
 	case <-ctx.Done():
