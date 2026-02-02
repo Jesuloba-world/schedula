@@ -9,6 +9,11 @@ CORS_ALLOW_ORIGIN_REGEX="${CORS_ALLOW_ORIGIN_REGEX:-.*}"
 ENVOY_LOG_LEVEL="${ENVOY_LOG_LEVEL:-info}"
 ENVOY_MAX_DOWNSTREAM_CONNECTIONS="${ENVOY_MAX_DOWNSTREAM_CONNECTIONS:-1024}"
 
+if [ "${CORS_ALLOW_ORIGINS:-}" != "" ]; then
+	escaped_csv="$(printf '%s' "$CORS_ALLOW_ORIGINS" | tr -d '\n' | sed -e 's/[[:space:]]//g' -e 's/[.[\\^$*+?(){|}]/\\&/g')"
+	CORS_ALLOW_ORIGIN_REGEX="^($(printf '%s' "$escaped_csv" | tr ',' '|'))$"
+fi
+
 export PORT
 export ENVOY_ADMIN_PORT
 export UPSTREAM_HOST
