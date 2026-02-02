@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+PORT="${PORT:-8080}"
+ENVOY_ADMIN_PORT="${ENVOY_ADMIN_PORT:-9901}"
+UPSTREAM_HOST="${UPSTREAM_HOST:-127.0.0.1}"
+UPSTREAM_PORT="${UPSTREAM_PORT:-50051}"
+CORS_ALLOW_ORIGIN_REGEX="${CORS_ALLOW_ORIGIN_REGEX:-.*}"
+ENVOY_LOG_LEVEL="${ENVOY_LOG_LEVEL:-info}"
+
+export PORT
+export ENVOY_ADMIN_PORT
+export UPSTREAM_HOST
+export UPSTREAM_PORT
+export CORS_ALLOW_ORIGIN_REGEX
+
+envsubst < /etc/envoy/envoy.yaml.tmpl > /tmp/envoy.yaml
+
+exec envoy -c /tmp/envoy.yaml --log-level "${ENVOY_LOG_LEVEL}"
