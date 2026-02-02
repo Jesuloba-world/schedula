@@ -1,0 +1,10 @@
+FROM envoyproxy/envoy:v1.37-latest
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends gettext-base ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY ./envoy/envoy.yaml.tmpl /etc/envoy/envoy.yaml.tmpl
+
+EXPOSE 8080 9901
+
+CMD ["sh","-ec","PORT=${PORT:-8080}; ENVOY_ADMIN_PORT=${ENVOY_ADMIN_PORT:-9901}; UPSTREAM_HOST=${UPSTREAM_HOST:-127.0.0.1}; UPSTREAM_PORT=${UPSTREAM_PORT:-50051}; CORS_ALLOW_ORIGIN_REGEX=${CORS_ALLOW_ORIGIN_REGEX:-.*}; ENVOY_LOG_LEVEL=${ENVOY_LOG_LEVEL:-info}; export PORT ENVOY_ADMIN_PORT UPSTREAM_HOST UPSTREAM_PORT CORS_ALLOW_ORIGIN_REGEX; envsubst < /etc/envoy/envoy.yaml.tmpl > /etc/envoy/envoy.yaml; exec envoy -c /etc/envoy/envoy.yaml --log-level ${ENVOY_LOG_LEVEL}"]
