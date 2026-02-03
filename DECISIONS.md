@@ -2,21 +2,21 @@
 
 This file records product and technical decisions made under ambiguous requirements, with brief rationale and trade-offs. It is intentionally updated as the project evolves.
 
-Current scope: Appointment Scheduling only (create, view, remove, and a scheduling-friendly display).
+Current scope: Appointment Scheduling only (one-off appointments + recurring series creation and occurrence listing, with a scheduling-friendly display).
 
 ## Appointment Scheduling (MVP)
 
 ### Decision 1: What data an appointment contains
 Choice:
 Appointment has these fields:
-1. id (server-generated)
+1. id (server-generated UUIDv7 by default; deterministic when Idempotency-Key is provided)
 2. user_id (string identifier; no auth in MVP)
 3. title (required)
 4. notes (optional)
 5. start_time (required)
 6. end_time (required)
-7. created_at (server-generated)
-8. updated_at (server-generated)
+7. created_at (server-generated if unset)
+8. updated_at (server-generated if unset)
 
 Rationale:
 Typical scheduling use cases require a human-readable label and a time range. A user scope keeps the model realistic without requiring full authentication. Notes support common “extra details” needs without expanding scope into invites, attendees, or locations.
@@ -49,10 +49,14 @@ Choice:
 1. Create appointment
 2. List appointments within a requested time window
 3. Delete appointment by id
+4. Create recurring series (weekly only)
+5. List occurrences within a requested time window
 Not supported in MVP:
 1. Update appointment
 2. Cancel vs delete distinction
 3. Invitees, multi-calendar sharing, reminders
+4. Delete recurring series
+5. Recurring exceptions (skip/override) via API
 
 Rationale:
 The requirements explicitly call out create, view, remove. Deferring update keeps the API smaller and avoids additional conflict scenarios (moving appointments).
@@ -63,7 +67,11 @@ Primary view is a day schedule timeline:
 1. Date navigation (previous/next, date picker)
 2. Time grid with appointments rendered as blocks positioned by start/end time
 3. Overlapping appointments are visually stacked or placed side-by-side
-4. Create flow starts from selecting a time range (click or click-drag), then a modal to enter title and notes
+4. User switcher input (user_id) to scope the schedule
+5. Create flow starts from selecting a time range (click or click-drag), then a modal to enter title and notes
+6. Quick create via a "New" button that opens the create modal
+7. Delete flow is started by selecting an existing appointment, then confirming in a modal
+8. Recurrence is configured in the create modal (Once vs Weekly, interval, weekdays, ending rule, time zone display)
 
 Rationale:
 A day timeline is the simplest UI that still “makes sense for scheduling” because it immediately communicates availability and conflicts.
@@ -174,11 +182,9 @@ Interpretation (what constitutes a scheduling conflict):
 Implementation notes:
 1. The service validates basic fields and normalizes timestamps to UTC, then attempts the insert.
 2. The repository maps the exclusion-constraint violation to a conflict error.
-3. The gRPC layer returns a clear, user-facing error when conflicts occur:
-   code: FailedPrecondition
-   ui_title: Time conflict
-   ui_body: You already have an appointment during that time. Pick a different slot.
-   message: ui_body
+3. The gRPC layer returns codes.FailedPrecondition with a plain string message for conflicts.
+4. The frontend maps FailedPrecondition to a "Time conflict" UI title and displays the server message when present.
+5. Idempotency conflicts are also surfaced as codes.FailedPrecondition with a separate message.
 
 Rationale:
 This enforces the scheduling invariant under concurrency without relying solely on application-level checks. btree_gist is required because text equality does not have a default GiST operator class; the extension supplies GiST operator classes for btree-style operators like =, which makes the exclusion constraint valid.
@@ -192,6 +198,7 @@ Choice:
 When multiple requests attempt to book overlapping time ranges for the same user_id, the system enforces strict consistency:
 1. At most one request can succeed.
 2. Conflicting requests are rejected with a conflict response.
+3. Calendar writes for a user_id are serialized with a per-user advisory lock in the database.
 
 Rationale:
 Scheduling is trust-sensitive. Allowing double-booking and later reconciliation creates a poor experience and hard-to-reason-about state. Using Postgres as the source of truth provides correct behavior under concurrency without relying on application-level coordination.
@@ -217,8 +224,9 @@ Provides high-quality, accessible UI primitives while keeping components in-repo
 ### Decision 19: gRPC-Web proxy for browser clients
 Choice:
 1. Keep the backend as a standard gRPC server (grpc-go) on :50051.
-2. Use Envoy as a gRPC-Web proxy for the browser, exposed on :8080.
-3. The frontend uses the gRPC-Web transport and targets the proxy URL, not the raw gRPC port.
+2. Use Envoy as a gRPC-Web proxy for the browser, listening on :8080 and published locally on :8081 via Docker Compose.
+3. The frontend uses a gRPC-Web compatible transport and targets the proxy URL (default http://localhost:8081) rather than the raw gRPC port.
+4. The proxy base URL is configurable via VITE_GRPC_WEB_BASE_URL.
 
 Rationale:
 Browsers cannot call a raw gRPC server directly. Envoy’s grpc_web filter translates gRPC-Web requests into standard gRPC, letting us keep grpc-go on the backend without adding Connect-Go or changing the service implementation. Envoy is a production-grade proxy with a clear path to TLS, auth, and observability when needed.
@@ -226,13 +234,17 @@ Browsers cannot call a raw gRPC server directly. Envoy’s grpc_web filter trans
 Trade-offs considered:
 1. A smaller dev-only proxy (grpcwebproxy) is simpler to run but provides less flexibility for production needs.
 2. Adding Connect-Go enables the Connect protocol directly, but introduces another backend dependency and a different transport layer than gRPC.
+3. Keeping a single Envoy config is simpler; having both a static config and an envsubst-templated config improves deploy flexibility at the cost of duplication.
+4. Docker Compose uses the static Envoy config; the templated config is for containerized deployment.
 
 ### Decision 20: Recurring appointments model (calendar-grade)
 Choice:
 Represent recurring appointments as a recurrence rule plus exceptions:
-1. Store a recurring series entity (rule, timezone, and template fields like title/notes and duration).
+1. Store a recurring series entity (rule, time zone, and template fields like title/notes and duration).
 2. Store exceptions for individual occurrences (skip or override).
 3. Generate occurrences for a requested time window at read-time and merge them with one-off appointments.
+4. Current supported frequency is weekly only (interval + byweekday) with an end condition (until or count).
+5. Occurrence ids are derived from the occurrence start timestamp (UTC) and represented as a string.
 
 Rationale:
 This matches how mature calendar products behave (edit single occurrence, edit series, skip dates) while keeping storage bounded for long-running series.
@@ -248,6 +260,8 @@ Use pure rule-based conflict detection with transactional locking:
 2. The transaction acquires a per-user_id lock to serialize calendar writes.
 3. The service generates the affected occurrences in-scope and checks overlaps against existing one-off appointments and other generated occurrences.
 4. Conflicts are rejected with FailedPrecondition and the "Time conflict" UI copy.
+5. Conflict checks are bounded by a 180-day lookahead window from the series start_time (or earlier until), plus one occurrence duration.
+6. Existing recurring series are expanded for the conflict window and merged with exceptions (skip/override) before overlap checks.
 
 Rationale:
 Rule-based conflict checks allow the system to return actionable feedback (which occurrence conflicts) without materializing an additional reservations table. Transactional locking prevents race conditions between concurrent writes for the same calendar.
@@ -255,10 +269,12 @@ Rule-based conflict checks allow the system to return actionable feedback (which
 User experience trade-offs:
 1. Under high contention for a single user_id, writes may queue behind the lock (higher latency) but outcomes remain consistent and explainable.
 2. Open-ended recurrence rules require a bounded evaluation window or an explicit end (count/until) to keep latency predictable.
+3. To reduce edge-case misses, exception rows are queried with a ±14-day buffer around the conflict window.
 
 ### Decision 22: Default request timeouts for gRPC
 Choice:
 Set a default per-RPC timeout on the server when the client does not provide a deadline.
+This is enforced via a unary interceptor and defaults to 10 seconds when not configured.
 
 Rationale:
 Prevents requests from hanging indefinitely under lock contention or slow downstream calls, and keeps tail latency bounded in multi-instance deployments.
@@ -266,6 +282,7 @@ Prevents requests from hanging indefinitely under lock contention or slow downst
 ### Decision 23: Per-instance database connection pool limits
 Choice:
 Configure and apply database/sql pool limits (max open/idle conns, connection lifetimes) via environment-backed config.
+Defaults are applied in configuration and enforced on the connection pool at startup.
 
 Rationale:
 Avoids accidental connection storms when scaling the number of server instances.
@@ -276,15 +293,25 @@ Support an Idempotency-Key request header for CreateAppointment:
 1. The server derives a deterministic appointment id from (user_id, idempotency_key).
 2. If a retry hits an existing id, return the existing appointment if the payload matches.
 3. If the same key is reused with a different payload, reject the request.
+4. The server accepts Idempotency-Key and X-Idempotency-Key and enforces a maximum key length (256 bytes).
 
 Rationale:
 Makes client retries safe across instances without requiring server affinity.
+
+### Decision 25: Browser client RPC stack
+Choice:
+Use ConnectRPC's generated TypeScript clients and connect-web transport for the frontend:
+1. buf generates TypeScript message and service definitions.
+2. The frontend uses @connectrpc/connect and @connectrpc/connect-web to call the Envoy gRPC-Web proxy.
+
+Rationale:
+This keeps the browser client strongly typed from the protobuf schema with a small, maintained transport layer while still using grpc-go on the backend behind Envoy.
 
 ## Questions For Stakeholders (And How We Proceeded)
 1. Is this a single shared calendar or per-user calendars
    Proceeded with per-user calendars because it is the most typical scheduling model.
 2. Should appointments support updates and cancellations
-   Proceeded with create/list/delete only as explicitly required.
+   Proceeded with create/list/delete for one-off appointments only as explicitly required.
 3. Do appointments need locations, attendees, or reminders
    Proceeded with title and optional notes only to keep scope focused.
 
